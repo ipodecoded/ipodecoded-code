@@ -88,9 +88,8 @@ CREATE TABLE IF NOT EXISTS ipo_sources (
     source_name VARCHAR(100) NOT NULL,
     source_url TEXT,
     source_ipo_id VARCHAR(100),
-    raw_data JSONB,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    raw_data TEXT,
+    fetched_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 -- 4. Create Source Health Monitoring table

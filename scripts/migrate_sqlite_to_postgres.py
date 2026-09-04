@@ -68,11 +68,16 @@ def migrate():
     print(f"📁 Source: SQLite ({sqlite_path}) [READ-ONLY]")
     # Obfuscate password in printed target URL
     safe_target = target_url
-    if "@" in safe_target:
-        parts = safe_target.split("@")
-        cred_parts = parts[0].split(":")
-        if len(cred_parts) > 2:
-            safe_target = f"{cred_parts[0]}:****@{parts[1]}"
+    try:
+        from urllib.parse import urlsplit, urlunsplit
+        parsed = urlsplit(target_url)
+        if parsed.password:
+            safe_netloc = f"{parsed.username or ''}:****@{parsed.hostname or ''}"
+            if parsed.port:
+                safe_netloc += f":{parsed.port}"
+            safe_target = urlunsplit((parsed.scheme, safe_netloc, parsed.path, parsed.query, parsed.fragment))
+    except Exception:
+        safe_target = "postgresql://****:****@target-db"
     print(f"🌐 Target: PostgreSQL ({safe_target})")
     print("--------------------------------------------------------------------")
 
@@ -95,6 +100,16 @@ def migrate():
         # Create schema tables if not present
         print("📦 Creating target schema tables and indexes...")
         Base.metadata.create_all(bind=tgt_engine)
+
+        # Defensive schema compatibility in case tables were pre-created via custom SQL DDL
+        with tgt_engine.connect() as conn:
+            conn.execute(text("ALTER TABLE ipo_sources ADD COLUMN IF NOT EXISTS fetched_at TIMESTAMPTZ DEFAULT NOW();"))
+            try:
+                conn.execute(text("ALTER TABLE ipo_sources ALTER COLUMN raw_data TYPE TEXT USING raw_data::text;"))
+            except Exception:
+                pass
+            conn.commit()
+
         print("✅ Schema tables ready.")
         print("--------------------------------------------------------------------")
 
@@ -211,8 +226,7 @@ def migrate():
                 source_url=s_src.source_url,
                 source_ipo_id=s_src.source_ipo_id,
                 raw_data=s_src.raw_data,
-                created_at=s_src.created_at,
-                updated_at=s_src.updated_at
+                fetched_at=s_src.fetched_at
             )
             tgt_db.add(new_src)
             src_inserted += 1
@@ -276,20 +290,27 @@ def migrate():
 
         # 8. Reset PostgreSQL SERIAL Sequences
         print("⚙️ Synchronizing PostgreSQL primary key sequences...")
+        tables_to_sync = ["ipos", "ipo_gmp", "ipo_sources", "pipeline_runs"]
         with tgt_engine.connect() as conn:
-            seq_queries = [
-                "SELECT setval(pg_get_serial_sequence('ipos', 'id'), COALESCE((SELECT MAX(id) FROM ipos), 1));",
-                "SELECT setval(pg_get_serial_sequence('ipo_gmp', 'id'), COALESCE((SELECT MAX(id) FROM ipo_gmp), 1));",
-                "SELECT setval(pg_get_serial_sequence('ipo_sources', 'id'), COALESCE((SELECT MAX(id) FROM ipo_sources), 1));",
-                "SELECT setval(pg_get_serial_sequence('pipeline_runs', 'id'), COALESCE((SELECT MAX(id) FROM pipeline_runs), 1));",
-            ]
-            for q in seq_queries:
+            for tbl in tables_to_sync:
                 try:
-                    conn.execute(text(q))
+                    sync_sql = f"""
+                    DO $$
+                    DECLARE
+                        seq_name text;
+                        max_id bigint;
+                    BEGIN
+                        seq_name := pg_get_serial_sequence('{tbl}', 'id');
+                        IF seq_name IS NOT NULL THEN
+                            EXECUTE format('SELECT COALESCE(MAX(id), 1) FROM %I', '{tbl}') INTO max_id;
+                            PERFORM setval(seq_name, max_id);
+                        END IF;
+                    END $$;
+                    """
+                    conn.execute(text(sync_sql))
+                    conn.commit()
                 except Exception as seq_err:
-                    # Ignore if table uses identity rather than sequence
-                    pass
-            conn.commit()
+                    print(f"   ℹ️ Sequence sync note for {tbl}: {seq_err}")
         print("✅ Primary key sequences synchronized.")
 
         print("--------------------------------------------------------------------")

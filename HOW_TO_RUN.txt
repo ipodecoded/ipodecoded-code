@@ -1,0 +1,66 @@
+====================================================================
+IPODecoded - How to Run Guide
+====================================================================
+
+OPTION 1: QUICK START (ONE COMMAND)
+------------------------------------
+Run the launcher script from the root directory:
+
+    ./start.sh
+
+This automatically runs a database check, launches FastAPI backend on
+http://localhost:8000, and launches Vite frontend on http://localhost:5173.
+Press Ctrl+C to stop all services.
+
+
+OPTION 2: MANUAL STEP-BY-STEP
+-----------------------------
+Terminal 1 (Backend - FastAPI on Port 8000):
+    source venv/bin/activate
+    python -m uvicorn backend.main:app --host 0.0.0.0 --port 8000 --reload
+
+    API Documentation: http://localhost:8000/docs
+    Health Status:     http://localhost:8000/api/health
+    IPO Listing:       http://localhost:8000/api/ipos
+
+Terminal 2 (Frontend - Vite React on Port 5173):
+    cd frontend
+    npm run dev
+
+    Web App URL:       http://localhost:5173
+
+
+RUNNING THE LIVE MULTI-SOURCE INGESTION PIPELINE MANUALLY
+---------------------------------------------------------
+To fetch and update live IPO and GMP data from NSE, Chittorgarh,
+InvestorGain, and IPOWatch:
+
+    source venv/bin/activate
+    python -m pipeline.runner
+
+Or trigger via API:
+    curl -X POST http://localhost:8000/api/pipeline/run
+
+
+MIGRATING SQLITE DATA TO POSTGRESQL / NEON
+-------------------------------------------
+To migrate all 213 live IPOs, GMP history, and provenance to Neon PostgreSQL:
+
+    source venv/bin/activate
+    python scripts/migrate_sqlite_to_postgres.py "postgresql://user:pass@ep-xyz.neon.tech/neondb?sslmode=require"
+
+
+RUNNING TESTS
+-------------
+To run the automated test suite (25 unit tests):
+
+    source venv/bin/activate
+    python -m unittest discover tests
+
+
+KEY ASSETS & FILES
+------------------
+- Official Logo:  ipo-decoded-image.png (root) & frontend/public/ipo-decoded-logo.png
+- Favicons:       frontend/public/favicon.ico, favicon-32x32.png, favicon-192x192.png
+- Database:       ipodecoded.db (SQLite)
+====================================================================
